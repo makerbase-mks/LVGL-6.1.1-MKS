@@ -60,14 +60,14 @@ static lv_res_t lv_cpicker_signal(lv_obj_t * cpicker, lv_signal_t sign, void * p
 
 static void draw_rect_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale);
 static void draw_disc_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale);
-static void draw_indic(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale);
-static void invalidate_indic(lv_obj_t * cpicker);
-static lv_area_t get_indic_area(lv_obj_t * cpicker);
+static void draw_knob(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale);
+static void invalidate_knob(lv_obj_t * cpicker);
+static lv_area_t get_knob_area(lv_obj_t * cpicker);
 
 static void next_color_mode(lv_obj_t * cpicker);
 static lv_res_t double_click_reset(lv_obj_t * cpicker);
-static void refr_indic_pos(lv_obj_t * cpicker);
-static lv_color_t angle_to_mode_color(lv_obj_t * cpicker, uint16_t angle);
+static void refr_knob_pos(lv_obj_t * cpicker);
+static lv_color_t angle_to_mode_color_fast(lv_obj_t * cpicker, uint16_t angle);
 static uint16_t get_angle(lv_obj_t * cpicker);
 
 /**********************
@@ -109,11 +109,10 @@ lv_obj_t * lv_cpicker_create(lv_obj_t * par, const lv_obj_t * copy)
     /*Initialize the allocated 'ext' */
     ext->type = LV_CPICKER_DEF_TYPE;
     ext->hsv = LV_CPICKER_DEF_HSV;
-    ext->indic.style = &lv_style_plain;
-    ext->indic.colored = 0;
+    ext->knob.style = &lv_style_plain;
+    ext->knob.colored = 0;
     ext->color_mode = LV_CPICKER_COLOR_MODE_HUE;
     ext->color_mode_fixed = 0;
-    ext->preview = 0;
     ext->last_click_time = 0;
     ext->last_change_time = 0;
 
@@ -138,15 +137,14 @@ lv_obj_t * lv_cpicker_create(lv_obj_t * par, const lv_obj_t * copy)
         ext->type = copy_ext->type;
         ext->color_mode = copy_ext->color_mode;
         ext->color_mode_fixed = copy_ext->color_mode_fixed;
-        ext->preview = copy_ext->preview;
         ext->hsv = copy_ext->hsv;
-        ext->indic.colored = copy_ext->indic.colored;
-        ext->indic.style = copy_ext->indic.style;
+        ext->knob.colored = copy_ext->knob.colored;
+        ext->knob.style = copy_ext->knob.style;
 
         /*Refresh the style with new signal function*/
         lv_obj_refresh_style(new_cpicker);
     }
-    refr_indic_pos(new_cpicker);
+    refr_knob_pos(new_cpicker);
 
     LV_LOG_INFO("color_picker created");
 
@@ -171,7 +169,7 @@ void lv_cpicker_set_type(lv_obj_t * cpicker, lv_cpicker_type_t type)
 
     ext->type = type;
     lv_obj_refresh_ext_draw_pad(cpicker);
-    refr_indic_pos(cpicker);
+    refr_knob_pos(cpicker);
 
     lv_obj_invalidate(cpicker);
 }
@@ -192,8 +190,8 @@ void lv_cpicker_set_style(lv_obj_t * cpicker, lv_cpicker_style_t type, lv_style_
     case LV_CPICKER_STYLE_MAIN:
         lv_obj_set_style(cpicker, style);
         break;
-    case LV_CPICKER_STYLE_INDICATOR:
-        ext->indic.style = style;
+    case LV_CPICKER_STYLE_KNOB:
+        ext->knob.style = style;
         lv_obj_invalidate(cpicker);
         break;
     }
@@ -258,11 +256,9 @@ bool lv_cpicker_set_hsv(lv_obj_t * cpicker, lv_color_hsv_t hsv)
 
     ext->hsv = hsv;
 
-    refr_indic_pos(cpicker);
+    refr_knob_pos(cpicker);
 
-    if (ext->preview && ext->type == LV_CPICKER_TYPE_DISC) {
-        lv_obj_invalidate(cpicker);
-    }
+    lv_obj_invalidate(cpicker);
 
     return true;
 }
@@ -275,11 +271,13 @@ bool lv_cpicker_set_hsv(lv_obj_t * cpicker, lv_color_hsv_t hsv)
  */
 bool lv_cpicker_set_color(lv_obj_t * cpicker, lv_color_t color)
 {
+    LV_ASSERT_OBJ(cpicker, LV_OBJX_NAME);
+
     lv_color32_t c32;
     c32.full = lv_color_to32(color);
 
     return lv_cpicker_set_hsv(cpicker,
-            lv_color_rgb_to_hsv(c32.ch.red, c32.ch.green, c32.ch.blue));
+                              lv_color_rgb_to_hsv(c32.ch.red, c32.ch.green, c32.ch.blue));
 }
 
 /**
@@ -294,7 +292,7 @@ void lv_cpicker_set_color_mode(lv_obj_t * cpicker, lv_cpicker_color_mode_t mode)
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
 
     ext->color_mode = mode;
-    refr_indic_pos(cpicker);
+    refr_knob_pos(cpicker);
     lv_obj_invalidate(cpicker);
 }
 
@@ -313,37 +311,24 @@ void lv_cpicker_set_color_mode_fixed(lv_obj_t * cpicker, bool fixed)
 }
 
 /**
- * Make the indicator to be colored to the current color
+ * Make the knob to be colored to the current color
  * @param cpicker pointer to colorpicker object
- * @param en true: color the indicator; false: not color the indicator
+ * @param en true: color the knob; false: not color the knob
  */
-void lv_cpicker_set_indic_colored(lv_obj_t * cpicker, bool en)
+void lv_cpicker_set_knob_colored(lv_obj_t * cpicker, bool en)
 {
     LV_ASSERT_OBJ(cpicker, LV_OBJX_NAME);
 
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
-    ext->indic.colored = en ? 1 : 0;
-    invalidate_indic(cpicker);
+    ext->knob.colored = en ? 1 : 0;
+    invalidate_knob(cpicker);
 }
 
-/**
- * Add a color preview in the middle of the DISC type color picker
- * @param cpicker pointer to colorpicker object
- * @param en true: enable preview; false: disable preview
- */
-void lv_cpicker_set_preview(lv_obj_t * cpicker, bool en)
-{
-    LV_ASSERT_OBJ(cpicker, LV_OBJX_NAME);
-
-    lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
-    ext->preview = en ? 1 : 0;
-    lv_obj_invalidate(cpicker);
-}
 /*=====================
  * Getter functions
  *====================*/
 
-/** 
+/**
  * Get the current color mode.
  * @param cpicker pointer to colorpicker object
  * @return color mode (hue/sat/val)
@@ -386,8 +371,8 @@ const lv_style_t * lv_cpicker_get_style(const lv_obj_t * cpicker, lv_cpicker_sty
     switch(type) {
     case LV_CPICKER_STYLE_MAIN:
         return lv_obj_get_style(cpicker);
-    case LV_CPICKER_STYLE_INDICATOR:
-        return ext->indic.style;
+    case LV_CPICKER_STYLE_KNOB:
+        return ext->knob.style;
     default:
         return NULL;
     }
@@ -467,33 +452,18 @@ lv_color_t lv_cpicker_get_color(lv_obj_t * cpicker)
 }
 
 /**
- * Whether the indicator is colored to the current color or not
- * @param cpicker pointer to colorpicker object
- * @return true: color the indicator; false: not color the indicator
+ * Whether the knob is colored to the current color or not
+ * @param cpicker pointer to color picker object
+ * @return true: color the knob; false: not color the knob
  */
-bool lv_cpicker_get_indic_colored(lv_obj_t * cpicker)
+bool lv_cpicker_get_knob_colored(lv_obj_t * cpicker)
 {
     LV_ASSERT_OBJ(cpicker, LV_OBJX_NAME);
 
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
 
-    return ext->indic.colored ? true : false;
+    return ext->knob.colored ? true : false;
 }
-
-/**
- *  Whether the preview is enabled or not
- * @param cpicker pointer to colorpicker object
- * @return en true: preview is enabled; false: preview is disabled
- */
-bool lv_cpicker_get_preview(lv_obj_t * cpicker)
-{
-    LV_ASSERT_OBJ(cpicker, LV_OBJX_NAME);
-
-    lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
-
-    return ext->preview ? true : false;
-}
-
 
 /*=====================
  * Other functions
@@ -531,7 +501,7 @@ static bool lv_cpicker_design(lv_obj_t * cpicker, const lv_area_t * mask, lv_des
             draw_rect_grad(cpicker, mask, opa_scale);
         }
 
-        draw_indic(cpicker, mask, opa_scale);
+        draw_knob(cpicker, mask, opa_scale);
     }
     /*Post draw when the children are drawn*/
     else if(mode == LV_DESIGN_DRAW_POST) {
@@ -542,107 +512,35 @@ static bool lv_cpicker_design(lv_obj_t * cpicker, const lv_area_t * mask, lv_des
 
 static void draw_disc_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale)
 {
-    lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
-    int16_t start_angle = 0; /*Default*/
-    int16_t end_angle = 360 - LV_CPICKER_DEF_QF; /*Default*/
-
     lv_coord_t w = lv_obj_get_width(cpicker);
     lv_coord_t h = lv_obj_get_height(cpicker);
     lv_coord_t cx = cpicker->coords.x1 + w / 2;
     lv_coord_t cy = cpicker->coords.y1 + h / 2;
     lv_coord_t r = w / 2;
 
-    /*if the mask does not include the center of the object
-    * redrawing all the wheel is not necessary;
-    * only a given angular range
-    */
-    lv_point_t center = {cx, cy};
-    if(!lv_area_is_point_on(mask, &center))
-    {
-        /*get angle from center of object to each corners of the area*/
-        int16_t dr, ur, ul, dl;
-        dr = lv_atan2(mask->x2 - cx, mask->y2 - cy);
-        ur = lv_atan2(mask->x2 - cx, mask->y1 - cy);
-        ul = lv_atan2(mask->x1 - cx, mask->y1 - cy);
-        dl = lv_atan2(mask->x1 - cx, mask->y2 - cy);
 
-        /*check area position from object axis*/
-        bool left = (mask->x2 < cx && mask->x1 < cx) ? true : false;
-        bool onYaxis = (mask->x2 > cx && mask->x1 < cx) ? true : false;
-        bool right = (mask->x2 > cx && mask->x1 > cx) ? true : false;
-        bool top = (mask->y2 < cy && mask->y1 < cy) ? true : false;
-        bool onXaxis = (mask->y2 > cy && mask->y1 < cy) ? true : false;
-        bool bottom = (mask->y2 > cy && mask->y1 > cy) ? true : false;
-
-        /*store angular range*/
-        if(right && bottom) {
-            start_angle = dl;
-            end_angle = ur;
-        } else if(right && onXaxis) {
-            start_angle = dl;
-            end_angle = ul;
-        } else if(right && top)  {
-            start_angle = dr;
-            end_angle = ul;
-        } else if(onYaxis && top) {
-            start_angle = dr;
-            end_angle = dl;
-        } else if(left && top)  {
-            start_angle = ur;
-            end_angle = dl;
-        } else if(left && onXaxis) {
-            start_angle = ur;
-            end_angle = dr;
-        } else if(left && bottom) {
-            start_angle = ul;
-            end_angle = dr;
-        } else if(onYaxis && bottom) {
-            start_angle = ul;
-            end_angle = ur;
-        }
-
-        /*rollover angle*/
-        if(start_angle > end_angle) end_angle += 360;
-
-        /*round to QF factor*/
-        start_angle = (start_angle/LV_CPICKER_DEF_QF) * LV_CPICKER_DEF_QF;
-        end_angle = (end_angle / LV_CPICKER_DEF_QF) * LV_CPICKER_DEF_QF;
-
-        /*shift angle if necessary before adding offset*/
-        if((start_angle - LV_CPICKER_DEF_QF) < 0) {
-            start_angle += 360;
-            end_angle += 360;
-        }
-
-        /*ensure overlapping by adding offset*/
-        start_angle -= LV_CPICKER_DEF_QF;
-        end_angle += LV_CPICKER_DEF_QF;
-    }
-
-    lv_point_t triangle_points[3];
     lv_style_t style;
     lv_style_copy(&style, &lv_style_plain);
     uint16_t i;
-    for(i = start_angle; i <= end_angle; i+= LV_CPICKER_DEF_QF) {
-        style.body.main_color = angle_to_mode_color(cpicker, i);
+    uint32_t a = 0;
+    style.line->width = (r * 628 / (256 / LV_CPICKER_DEF_QF)) / 100 + 2;
+
+    /* The inner line ends will be masked out.
+     * So make lines a little bit longer because the masking makes a more even result */
+    lv_coord_t cir_w_extra = cir_w + line_dsc.width;
+
+    for(i = 0; i <= 256; i += LV_CPICKER_DEF_QF, a += 360 * LV_CPICKER_DEF_QF) {
+        style.body.main_color = angle_to_mode_color_fast(cpicker, i);
         style.body.grad_color = style.body.main_color;
+        uint16_t angle_trigo = (uint16_t)(a >> 8); /* i * 360 / 256 is the scale to apply, but we can skip multiplication here */
+ 
+        lv_point_t p[2];
+        p[0].x = cx + (r * _lv_trigo_sin(angle_trigo) >> LV_TRIGO_SHIFT);
+        p[0].y = cy + (r * _lv_trigo_sin(angle_trigo + 90) >> LV_TRIGO_SHIFT);
+        p[1].x = cx + ((r - cir_w_extra) * _lv_trigo_sin(angle_trigo) >> LV_TRIGO_SHIFT);
+        p[1].y = cy + ((r - cir_w_extra) * _lv_trigo_sin(angle_trigo + 90) >> LV_TRIGO_SHIFT);
 
-        triangle_points[0].x = cx;
-        triangle_points[0].y = cy;
-
-        triangle_points[1].x = cx + (r * lv_trigo_sin(i) >> LV_TRIGO_SHIFT);
-        triangle_points[1].y = cy + (r * lv_trigo_sin(i + 90) >> LV_TRIGO_SHIFT);
-
-        if(i == end_angle || i == (360 - LV_CPICKER_DEF_QF)) {
-            /*the last triangle is drawn without additional overlapping pixels*/
-            triangle_points[2].x = cx + (r * lv_trigo_sin(i + LV_CPICKER_DEF_QF) >> LV_TRIGO_SHIFT);
-            triangle_points[2].y = cy + (r * lv_trigo_sin(i + LV_CPICKER_DEF_QF + 90) >> LV_TRIGO_SHIFT);
-        } else {
-            triangle_points[2].x = cx + (r * lv_trigo_sin(i + LV_CPICKER_DEF_QF + TRI_OFFSET) >> LV_TRIGO_SHIFT);
-            triangle_points[2].y = cy + (r * lv_trigo_sin(i + LV_CPICKER_DEF_QF + TRI_OFFSET + 90) >> LV_TRIGO_SHIFT);
-        }
-
-        lv_draw_triangle(triangle_points, mask, &style, LV_OPA_COVER);
+        lv_draw_line(&p[0], &p[1], mask, &style, LV_OPA_COVER);
     }
 
     /*Mask out the center area*/
@@ -655,14 +553,12 @@ static void draw_disc_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t 
 
     lv_draw_rect(&area_mid, mask, &style, opa_scale);
 
-    if(ext->preview) {
-        lv_color_t color = lv_cpicker_get_color(cpicker);
-        style.body.main_color = color;
-        style.body.grad_color = color;
-        lv_area_increment(&area_mid, -style_main->line.width / 2);
+    lv_color_t color = lv_cpicker_get_color(cpicker);
+    style.body.main_color = color;
+    style.body.grad_color = color;
+    lv_area_increment(&area_mid, -style_main->line.width / 2);
 
-        lv_draw_rect(&area_mid, mask, &style, opa_scale);
-    }
+    lv_draw_rect(&area_mid, mask, &style, opa_scale);
 }
 
 static void draw_rect_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale)
@@ -686,7 +582,7 @@ static void draw_rect_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t 
         lv_obj_get_coords(cpicker, &rounded_edge_area);
         rounded_edge_area.x2 = rounded_edge_area.x1 + 2 * r;
 
-        style.body.main_color = angle_to_mode_color(cpicker, 0);
+        style.body.main_color = angle_to_mode_color_fast(cpicker, 0);
         style.body.grad_color = style.body.main_color;
 
         lv_draw_rect(&rounded_edge_area, mask, &style, opa_scale);
@@ -695,69 +591,70 @@ static void draw_rect_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t 
         lv_obj_get_coords(cpicker, &rounded_edge_area);
         rounded_edge_area.x1 = rounded_edge_area.x2 - 2 * r;
 
-        style.body.main_color = angle_to_mode_color(cpicker, 359);
+        style.body.main_color = angle_to_mode_color_fast(cpicker, 255);
         style.body.grad_color = style.body.main_color;
 
         lv_draw_rect(&rounded_edge_area, mask, &style, opa_scale);
     }
 
     lv_coord_t grad_w = lv_area_get_width(&grad_area);
-    uint16_t i_step = LV_MATH_MAX(LV_CPICKER_DEF_QF, 360 / grad_w);
+    uint16_t i_step = LV_MATH_MAX(LV_CPICKER_DEF_QF, 256 / grad_w);
     style.body.radius = 0;
     style.body.border.width = 0;
     style.body.shadow.width = 0;
     style.body.opa = LV_OPA_COVER;
 
     uint16_t i;
-    for(i = 0; i < 360; i += i_step) {
-        style.body.main_color = angle_to_mode_color(cpicker, i);
+    for(i = 0; i < 256; i += i_step) {
+        style.body.main_color = angle_to_mode_color_fast(cpicker, i);
         style.body.grad_color = style.body.main_color;
 
         /*the following attribute might need changing between index to add border, shadow, radius etc*/
         lv_area_t rect_area;
 
         /*scale angle (hue/sat/val) to linear coordinate*/
-        lv_coord_t xi = (i * grad_w) / 360;
+        lv_coord_t xi = (i * grad_w) / 256;
+        lv_coord_t xi2 = ((i + i_step) * grad_w) / 256;
 
         rect_area.x1 = LV_MATH_MIN(grad_area.x1 + xi, grad_area.x1 + grad_w - i_step);
         rect_area.y1 = grad_area.y1;
-        rect_area.x2 = rect_area.x1 + i_step;
+        rect_area.x2 = LV_MATH_MIN(grad_area.x1 + xi2, grad_area.x1 + grad_w - i_step);
         rect_area.y2 = grad_area.y2;
 
         lv_draw_rect(&rect_area, mask, &style, opa_scale);
     }
 }
 
-static void draw_indic(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale)
+static void draw_knob(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t opa_scale)
 {
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
 
     lv_style_t style_cir;
-    lv_style_copy(&style_cir, ext->indic.style);
+    lv_style_copy(&style_cir, ext->knob.style);
     style_cir.body.radius = LV_RADIUS_CIRCLE;
 
-    if(ext->indic.colored) {
+    if(ext->knob.colored) {
         style_cir.body.main_color = lv_cpicker_get_color(cpicker);
         style_cir.body.grad_color = style_cir.body.main_color;
     }
 
-    lv_area_t indic_area = get_indic_area(cpicker);
+    lv_area_t knob_area = get_knob_area(cpicker);
 
-    lv_draw_rect(&indic_area, mask, &style_cir, opa_scale);
+    lv_draw_rect(&knob_area, mask, &style_cir, opa_scale);
 }
 
-static void invalidate_indic(lv_obj_t * cpicker)
+static void invalidate_knob(lv_obj_t * cpicker)
 {
-    lv_area_t indic_area = get_indic_area(cpicker);
+    lv_area_t knob_area = get_knob_area(cpicker);
 
-    lv_inv_area(lv_obj_get_disp(cpicker), &indic_area);
+    lv_inv_area(lv_obj_get_disp(cpicker), &knob_area);
 }
 
-static lv_area_t get_indic_area(lv_obj_t * cpicker)
+static lv_area_t get_knob_area(lv_obj_t * cpicker)
 {
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
     const lv_style_t * style_main = lv_cpicker_get_style(cpicker, LV_CPICKER_STYLE_MAIN);
-    const lv_style_t * style_indic = lv_cpicker_get_style(cpicker, LV_CPICKER_STYLE_INDICATOR);
+    const lv_style_t * style_knob = lv_cpicker_get_style(cpicker, LV_CPICKER_STYLE_KNOB);
 
     uint16_t r = 0;
     if(ext->type == LV_CPICKER_TYPE_DISC) r = style_main->line.width / 2;
@@ -766,13 +663,13 @@ static lv_area_t get_indic_area(lv_obj_t * cpicker)
         r = h / 2;
     }
 
-    lv_area_t indic_area;
-    indic_area.x1 = cpicker->coords.x1 + ext->indic.pos.x - r - style_indic->body.padding.left;
-    indic_area.y1 = cpicker->coords.y1 + ext->indic.pos.y - r - style_indic->body.padding.right;
-    indic_area.x2 = cpicker->coords.x1 + ext->indic.pos.x + r + style_indic->body.padding.top;
-    indic_area.y2 = cpicker->coords.y1 + ext->indic.pos.y + r + style_indic->body.padding.bottom;
+    lv_area_t knob_area;
+    knob_area.x1 = cpicker->coords.x1 + ext->knob.pos.x - r - style_knob->body.padding.left;
+    knob_area.y1 = cpicker->coords.y1 + ext->knob.pos.y - r - style_knob->body.padding.right;
+    knob_area.x2 = cpicker->coords.x1 + ext->knob.pos.x + r + style_knob->body.padding.top;
+    knob_area.y2 = cpicker->coords.y1 + ext->knob.pos.y + r + style_knob->body.padding.bottom;
 
-    return indic_area;
+    return knob_area;
 }
 
 /**
@@ -794,25 +691,27 @@ static lv_res_t lv_cpicker_signal(lv_obj_t * cpicker, lv_signal_t sign, void * p
     if(sign == LV_SIGNAL_CLEANUP) {
         /*Nothing to cleanup. (No dynamically allocated memory in 'ext')*/
     } else if(sign == LV_SIGNAL_REFR_EXT_DRAW_PAD) {
-        const lv_style_t * style_indic = lv_cpicker_get_style(cpicker, LV_CPICKER_STYLE_INDICATOR);
-        lv_coord_t indic_pad = LV_MATH_MAX(style_indic->body.padding.left, style_indic->body.padding.right);
-        indic_pad = LV_MATH_MAX(indic_pad, style_indic->body.padding.top);
-        indic_pad = LV_MATH_MAX(indic_pad, style_indic->body.padding.bottom);
+        const lv_style_t * style_knob = lv_cpicker_get_style(cpicker, LV_CPICKER_STYLE_KNOB);
+        lv_coord_t knob_pad = LV_MATH_MAX(style_knob->body.padding.left, style_knob->body.padding.right);
+        knob_pad = LV_MATH_MAX(knob_pad, style_knob->body.padding.top);
+        knob_pad = LV_MATH_MAX(knob_pad, style_knob->body.padding.bottom);
 
-        if(ext->type == LV_CPICKER_TYPE_RECT) indic_pad += LV_MATH_MAX(indic_pad, lv_obj_get_height(cpicker) / 2);
+        if(ext->type == LV_CPICKER_TYPE_RECT) knob_pad += LV_MATH_MAX(knob_pad, lv_obj_get_height(cpicker) / 2);
 
-        cpicker->ext_draw_pad = LV_MATH_MAX(cpicker->ext_draw_pad, indic_pad);
+        cpicker->ext_draw_pad = LV_MATH_MAX(cpicker->ext_draw_pad, knob_pad);
     } else if(sign == LV_SIGNAL_CORD_CHG) {
         /*Refresh extended draw area to make knob visible*/
         if(lv_obj_get_width(cpicker) != lv_area_get_width(param) ||
            lv_obj_get_height(cpicker) != lv_area_get_height(param)) {
             lv_obj_refresh_ext_draw_pad(cpicker);
-            refr_indic_pos(cpicker);
+            refr_knob_pos(cpicker);
+            lv_obj_invalidate(cpicker);
         }
     }  else if(sign == LV_SIGNAL_STYLE_CHG) {
         /*Refresh extended draw area to make knob visible*/
         lv_obj_refresh_ext_draw_pad(cpicker);
-        refr_indic_pos(cpicker);
+        refr_knob_pos(cpicker);
+        lv_obj_invalidate(cpicker);
     }
     else if(sign == LV_SIGNAL_CONTROL) {
         uint32_t c = *((uint32_t *)param); /*uint32_t because can be UTF-8*/
@@ -945,6 +844,10 @@ static lv_res_t lv_cpicker_signal(lv_obj_t * cpicker, lv_signal_t sign, void * p
             if(res != LV_RES_OK) return res;
         }
     }
+    else if(sign == LV_SIGNAL_HIT_TEST) {
+        lv_hit_test_info_t * info = param;
+        info->result = lv_cpicker_hit(cpicker, info->point);
+    }
 
     return res;
 }
@@ -953,13 +856,13 @@ static void next_color_mode(lv_obj_t * cpicker)
 {
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
     ext->color_mode = (ext->color_mode + 1) % 3;
-    refr_indic_pos(cpicker);
+    refr_knob_pos(cpicker);
     lv_obj_invalidate(cpicker);
 }
 
-static void refr_indic_pos(lv_obj_t * cpicker)
+static void refr_knob_pos(lv_obj_t * cpicker)
 {
-    invalidate_indic(cpicker);
+    invalidate_knob(cpicker);
 
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
     lv_coord_t w = lv_obj_get_width(cpicker);
@@ -979,19 +882,19 @@ static void refr_indic_pos(lv_obj_t * cpicker)
             break;
         }
 
-        ext->indic.pos.x = ind_pos;
-        ext->indic.pos.y = h / 2;
+        ext->knob.pos.x = ind_pos;
+        ext->knob.pos.y = h / 2;
     } else if(ext->type == LV_CPICKER_TYPE_DISC) {
         const lv_style_t * style_main = lv_cpicker_get_style(cpicker, LV_CPICKER_STYLE_MAIN);
         lv_coord_t r = w / 2 - style_main->line.width / 2;
         uint16_t angle = get_angle(cpicker);
-        ext->indic.pos.x = (((int32_t)r * lv_trigo_sin(angle)) >> LV_TRIGO_SHIFT);
-        ext->indic.pos.y = (((int32_t)r * lv_trigo_sin(angle + 90)) >> LV_TRIGO_SHIFT);
-        ext->indic.pos.x = ext->indic.pos.x + w / 2;
-        ext->indic.pos.y = ext->indic.pos.y + h / 2;
+        ext->knob.pos.x = (((int32_t)r * lv_trigo_sin(angle)) >> LV_TRIGO_SHIFT);
+        ext->knob.pos.y = (((int32_t)r * lv_trigo_sin(angle + 90)) >> LV_TRIGO_SHIFT);
+        ext->knob.pos.x = ext->knob.pos.x + w / 2;
+        ext->knob.pos.y = ext->knob.pos.y + h / 2;
     }
 
-    invalidate_indic(cpicker);
+    invalidate_knob(cpicker);
 }
 
 static lv_res_t double_click_reset(lv_obj_t * cpicker)
@@ -1025,24 +928,85 @@ static lv_res_t double_click_reset(lv_obj_t * cpicker)
     return LV_RES_OK;
 }
 
-static lv_color_t angle_to_mode_color(lv_obj_t * cpicker, uint16_t angle)
+#define SWAPPTR(A, B) do { uint8_t * t = A; A = B; B = t; } while(0)
+#define HSV_PTR_SWAP(sextant,r,g,b)     if((sextant) & 2) { SWAPPTR((r), (b)); } if((sextant) & 4) { SWAPPTR((g), (b)); } if(!((sextant) & 6)) { \
+                                                if(!((sextant) & 1)) { SWAPPTR((r), (g)); } } else { if((sextant) & 1) { SWAPPTR((r), (g)); } } 
+
+/* Based on the idea from https://www.vagrearg.org/content/hsvrgb
+   Here we want to compute an approximate RGB value from a HSV input color space. We don't want to be accurate 
+   (for that, there's lv_color_hsv_to_rgb), but we want to be fast.
+   
+   Few tricks are used here: Hue is in range [0; 6 * 256] (so that the sextant is in the high byte and the fractional part is in the low byte)
+   both s and v are in [0; 255] range (very convenient to avoid divisions).
+
+   We fold all symmetry by swapping the R, G, B pointers so that the code is the same for all sextants.
+   We replace division by 255 by a division by 256, a.k.a a shift right by 8 bits. 
+   This is wrong, but since this is only used to compute the pixels on the screen and not the final color, it's ok.
+ */
+static void fast_hsv2rgb(uint16_t h, uint8_t s, uint8_t v, uint8_t *r, uint8_t *g , uint8_t *b);
+static void fast_hsv2rgb(uint16_t h, uint8_t s, uint8_t v, uint8_t *r, uint8_t *g , uint8_t *b)
+{
+    if (!s) { *r = *g = *b = v; return; }
+
+    uint8_t sextant = h >> 8;
+    HSV_PTR_SWAP(sextant, r, g, b); /* Swap pointers so the conversion code is the same */
+
+    *g = v;     
+
+    uint8_t bb = ~s;
+    uint16_t ww = v * bb; /* Don't try to be precise, but instead, be fast */
+    *b = ww >> 8;
+
+    uint8_t h_frac = h & 0xff;
+
+    if(!(sextant & 1)) { 
+        /* Up slope */
+        ww = !h_frac ? ((uint16_t)s << 8) : (s * (uint8_t)(-h_frac)); /* Skip multiply if not required */
+    } else { 
+        /* Down slope */
+        ww = s * h_frac;
+    }
+    bb = ww >> 8;
+    bb = ~bb;
+    ww = v * bb;
+    *r = ww >> 8;
+}
+
+static lv_color_t angle_to_mode_color_fast(lv_obj_t * cpicker, uint16_t angle)
 {
     lv_cpicker_ext_t * ext = lv_obj_get_ext_attr(cpicker);
-    lv_color_t color;
-    switch(ext->color_mode)
-    {
-    default:
-    case LV_CPICKER_COLOR_MODE_HUE:
-        color = lv_color_hsv_to_rgb(angle % 360, ext->hsv.s, ext->hsv.v);
-        break;
-    case LV_CPICKER_COLOR_MODE_SATURATION:
-        color = lv_color_hsv_to_rgb(ext->hsv.h, ((angle % 360) * 100) / 360, ext->hsv.v);
-        break;
-    case LV_CPICKER_COLOR_MODE_VALUE:
-        color = lv_color_hsv_to_rgb(ext->hsv.h, ext->hsv.s, ((angle % 360) * 100) / 360);
-        break;
+    uint8_t r = 0, g = 0, b = 0;
+    static uint16_t h = 0;
+    static uint8_t s = 0, v = 0, m = 255;
+    
+    switch(ext->color_mode) {
+        default:
+        case LV_CPICKER_COLOR_MODE_HUE:
+            /* Don't recompute costly scaling if it does not change */
+            if (m != ext->color_mode) {
+              s = (uint8_t)(((uint16_t)ext->hsv.s * 51) / 20); v = (uint8_t)(((uint16_t)ext->hsv.v * 51) / 20);
+              m = ext->color_mode;
+            }
+            fast_hsv2rgb(angle * 6, s, v, &r, &g, &b); /* A smart compiler will replace x * 6 by (x << 2) + (x << 1) if it's more efficient */
+            break;
+        case LV_CPICKER_COLOR_MODE_SATURATION:
+            /* Don't recompute costly scaling if it does not change */
+            if (m != ext->color_mode) {
+              h = (uint16_t)(((uint32_t)ext->hsv.h * 6 * 256) / 360); v = (uint8_t)(((uint16_t)ext->hsv.v * 51) / 20); 
+              m = ext->color_mode;
+            }
+            fast_hsv2rgb(h, angle, v, &r, &g, &b);
+            break;
+        case LV_CPICKER_COLOR_MODE_VALUE:
+            /* Don't recompute costly scaling if it does not change */
+            if (m != ext->color_mode) {
+              h = (uint16_t)(((uint32_t)ext->hsv.h * 6 * 256) / 360); s = (uint8_t)(((uint16_t)ext->hsv.s * 51) / 20);
+              m = ext->color_mode;
+            }
+            fast_hsv2rgb(h, s, angle, &r, &g, &b);
+            break;
     }
-    return color;
+    return LV_COLOR_MAKE(r, g, b);
 }
 
 static uint16_t get_angle(lv_obj_t * cpicker)

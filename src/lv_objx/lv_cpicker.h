@@ -95,14 +95,6 @@ lv_obj_t * lv_cpicker_create(lv_obj_t * par, const lv_obj_t * copy);
 void lv_cpicker_set_type(lv_obj_t * cpicker, lv_cpicker_type_t type);
 
 /**
- * Set a style of a colorpicker.
- * @param cpicker pointer to colorpicker object
- * @param type which style should be set
- * @param style pointer to a style
- */
-void lv_cpicker_set_style(lv_obj_t * cpicker, lv_cpicker_style_t type, lv_style_t *style);
-
-/**
  * Set the current hue of a colorpicker.
  * @param cpicker pointer to colorpicker object
  * @param hue current selected hue [0..360]
@@ -180,14 +172,6 @@ lv_cpicker_color_mode_t lv_cpicker_get_color_mode(lv_obj_t * cpicker);
  * @return mode cannot be changed on long press
  */
 bool lv_cpicker_get_color_mode_fixed(lv_obj_t * cpicker);
-
-/**
- * Get style of a colorpicker.
- * @param cpicker pointer to colorpicker object
- * @param type which style should be get
- * @return pointer to the style
- */
-const lv_style_t * lv_cpicker_get_style(const lv_obj_t * cpicker, lv_cpicker_style_t type);
 
 /**
  * Get the current hue of a colorpicker.
