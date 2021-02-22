@@ -523,11 +523,11 @@ static void draw_disc_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t 
     lv_style_copy(&style, &lv_style_plain);
     uint16_t i;
     uint32_t a = 0;
-    style.line->width = (r * 628 / (256 / LV_CPICKER_DEF_QF)) / 100 + 2;
+    style.line.width = (r * 628 / (256 / LV_CPICKER_DEF_QF)) / 100 + 2;
 
     /* The inner line ends will be masked out.
      * So make lines a little bit longer because the masking makes a more even result */
-    lv_coord_t cir_w_extra = cir_w + line_dsc.width;
+    lv_coord_t cir_w_extra = style.line.width;
 
     for(i = 0; i <= 256; i += LV_CPICKER_DEF_QF, a += 360 * LV_CPICKER_DEF_QF) {
         style.body.main_color = angle_to_mode_color_fast(cpicker, i);
@@ -535,10 +535,10 @@ static void draw_disc_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t 
         uint16_t angle_trigo = (uint16_t)(a >> 8); /* i * 360 / 256 is the scale to apply, but we can skip multiplication here */
  
         lv_point_t p[2];
-        p[0].x = cx + (r * _lv_trigo_sin(angle_trigo) >> LV_TRIGO_SHIFT);
-        p[0].y = cy + (r * _lv_trigo_sin(angle_trigo + 90) >> LV_TRIGO_SHIFT);
-        p[1].x = cx + ((r - cir_w_extra) * _lv_trigo_sin(angle_trigo) >> LV_TRIGO_SHIFT);
-        p[1].y = cy + ((r - cir_w_extra) * _lv_trigo_sin(angle_trigo + 90) >> LV_TRIGO_SHIFT);
+        p[0].x = cx + (r * lv_trigo_sin(angle_trigo) >> LV_TRIGO_SHIFT);
+        p[0].y = cy + (r * lv_trigo_sin(angle_trigo + 90) >> LV_TRIGO_SHIFT);
+        p[1].x = cx + ((r - cir_w_extra) * lv_trigo_sin(angle_trigo) >> LV_TRIGO_SHIFT);
+        p[1].y = cy + ((r - cir_w_extra) * lv_trigo_sin(angle_trigo + 90) >> LV_TRIGO_SHIFT);
 
         lv_draw_line(&p[0], &p[1], mask, &style, LV_OPA_COVER);
     }
@@ -843,10 +843,6 @@ static lv_res_t lv_cpicker_signal(lv_obj_t * cpicker, lv_signal_t sign, void * p
             res = lv_event_send(cpicker, LV_EVENT_VALUE_CHANGED, NULL);
             if(res != LV_RES_OK) return res;
         }
-    }
-    else if(sign == LV_SIGNAL_HIT_TEST) {
-        lv_hit_test_info_t * info = param;
-        info->result = lv_cpicker_hit(cpicker, info->point);
     }
 
     return res;
