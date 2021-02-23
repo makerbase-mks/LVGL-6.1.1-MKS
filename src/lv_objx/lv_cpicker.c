@@ -527,13 +527,12 @@ static void draw_disc_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t 
 
     /* The inner line ends will be masked out.
      * So make lines a little bit longer because the masking makes a more even result */
-    lv_coord_t cir_w_extra = style.line.width;
+    lv_coord_t cir_w_extra = style.line.width * 4;
 
     for(i = 0; i <= 256; i += LV_CPICKER_DEF_QF, a += 360 * LV_CPICKER_DEF_QF) {
-        style.body.main_color = angle_to_mode_color_fast(cpicker, i);
-        style.body.grad_color = style.body.main_color;
+        style.line.color = angle_to_mode_color_fast(cpicker, i);
         uint16_t angle_trigo = (uint16_t)(a >> 8); /* i * 360 / 256 is the scale to apply, but we can skip multiplication here */
- 
+
         lv_point_t p[2];
         p[0].x = cx + (r * lv_trigo_sin(angle_trigo) >> LV_TRIGO_SHIFT);
         p[0].y = cy + (r * lv_trigo_sin(angle_trigo + 90) >> LV_TRIGO_SHIFT);
@@ -546,10 +545,12 @@ static void draw_disc_grad(lv_obj_t * cpicker, const lv_area_t * mask, lv_opa_t 
     /*Mask out the center area*/
     const lv_style_t * style_main = lv_cpicker_get_style(cpicker, LV_CPICKER_STYLE_MAIN);
     lv_style_copy(&style, style_main);
+    style.body.main_color = LV_COLOR_BLACK;
+    style.body.grad_color = LV_COLOR_BLACK;
     style.body.radius = LV_RADIUS_CIRCLE;
     lv_area_t area_mid;
     lv_area_copy(&area_mid, &cpicker->coords);
-    lv_area_increment(&area_mid, -style_main->line.width);
+    lv_area_increment(&area_mid, -cir_w_extra - style_main->line.width);
 
     lv_draw_rect(&area_mid, mask, &style, opa_scale);
 
@@ -806,15 +807,16 @@ static lv_res_t lv_cpicker_signal(lv_obj_t * cpicker, lv_signal_t sign, void * p
             r_in -= style_main->line.width;
 
             if(r_in > LV_DPI / 2) {
-            	r_in -= style_main->line.width; /* to let some sensitive space inside*/
+              lv_coord_t a = ((r_in * 628 / (256 / LV_CPICKER_DEF_QF)) / 100 + 2) * 4;
+            	r_in -= a + style_main->line.width; /* to let some sensitive space inside*/
 
             	if(r_in < LV_DPI / 2) r_in = LV_DPI / 2;
             }
 
             /*If the inner area is being pressed, go to the next color mode on long press*/
             if(p.x * p.x + p.y * p.y < r_in * r_in) {
-                uint32_t diff = lv_tick_elaps(ext->last_change_time);
-                if(diff > indev->driver.long_press_time && !ext->color_mode_fixed) {
+                uint32_t diff = indev->driver.long_press_time;
+                if(diff >= indev->driver.long_press_time && !ext->color_mode_fixed) {
                     next_color_mode(cpicker);
                     lv_indev_wait_release(lv_indev_get_act());
                 }
@@ -926,17 +928,17 @@ static lv_res_t double_click_reset(lv_obj_t * cpicker)
 
 #define SWAPPTR(A, B) do { uint8_t * t = A; A = B; B = t; } while(0)
 #define HSV_PTR_SWAP(sextant,r,g,b)     if((sextant) & 2) { SWAPPTR((r), (b)); } if((sextant) & 4) { SWAPPTR((g), (b)); } if(!((sextant) & 6)) { \
-                                                if(!((sextant) & 1)) { SWAPPTR((r), (g)); } } else { if((sextant) & 1) { SWAPPTR((r), (g)); } } 
+                                                if(!((sextant) & 1)) { SWAPPTR((r), (g)); } } else { if((sextant) & 1) { SWAPPTR((r), (g)); } }
 
 /* Based on the idea from https://www.vagrearg.org/content/hsvrgb
-   Here we want to compute an approximate RGB value from a HSV input color space. We don't want to be accurate 
+   Here we want to compute an approximate RGB value from a HSV input color space. We don't want to be accurate
    (for that, there's lv_color_hsv_to_rgb), but we want to be fast.
-   
+
    Few tricks are used here: Hue is in range [0; 6 * 256] (so that the sextant is in the high byte and the fractional part is in the low byte)
    both s and v are in [0; 255] range (very convenient to avoid divisions).
 
    We fold all symmetry by swapping the R, G, B pointers so that the code is the same for all sextants.
-   We replace division by 255 by a division by 256, a.k.a a shift right by 8 bits. 
+   We replace division by 255 by a division by 256, a.k.a a shift right by 8 bits.
    This is wrong, but since this is only used to compute the pixels on the screen and not the final color, it's ok.
  */
 static void fast_hsv2rgb(uint16_t h, uint8_t s, uint8_t v, uint8_t *r, uint8_t *g , uint8_t *b);
@@ -947,7 +949,7 @@ static void fast_hsv2rgb(uint16_t h, uint8_t s, uint8_t v, uint8_t *r, uint8_t *
     uint8_t sextant = h >> 8;
     HSV_PTR_SWAP(sextant, r, g, b); /* Swap pointers so the conversion code is the same */
 
-    *g = v;     
+    *g = v;
 
     uint8_t bb = ~s;
     uint16_t ww = v * bb; /* Don't try to be precise, but instead, be fast */
@@ -955,10 +957,10 @@ static void fast_hsv2rgb(uint16_t h, uint8_t s, uint8_t v, uint8_t *r, uint8_t *
 
     uint8_t h_frac = h & 0xff;
 
-    if(!(sextant & 1)) { 
+    if(!(sextant & 1)) {
         /* Up slope */
         ww = !h_frac ? ((uint16_t)s << 8) : (s * (uint8_t)(-h_frac)); /* Skip multiply if not required */
-    } else { 
+    } else {
         /* Down slope */
         ww = s * h_frac;
     }
@@ -974,7 +976,7 @@ static lv_color_t angle_to_mode_color_fast(lv_obj_t * cpicker, uint16_t angle)
     uint8_t r = 0, g = 0, b = 0;
     static uint16_t h = 0;
     static uint8_t s = 0, v = 0, m = 255;
-    
+
     switch(ext->color_mode) {
         default:
         case LV_CPICKER_COLOR_MODE_HUE:
@@ -988,7 +990,7 @@ static lv_color_t angle_to_mode_color_fast(lv_obj_t * cpicker, uint16_t angle)
         case LV_CPICKER_COLOR_MODE_SATURATION:
             /* Don't recompute costly scaling if it does not change */
             if (m != ext->color_mode) {
-              h = (uint16_t)(((uint32_t)ext->hsv.h * 6 * 256) / 360); v = (uint8_t)(((uint16_t)ext->hsv.v * 51) / 20); 
+              h = (uint16_t)(((uint32_t)ext->hsv.h * 6 * 256) / 360); v = (uint8_t)(((uint16_t)ext->hsv.v * 51) / 20);
               m = ext->color_mode;
             }
             fast_hsv2rgb(h, angle, v, &r, &g, &b);
