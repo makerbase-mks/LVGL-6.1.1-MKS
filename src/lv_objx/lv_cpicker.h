@@ -54,20 +54,19 @@ typedef struct {
         lv_point_t pos;
         uint8_t colored     :1;
 
-    } indic;
+    } knob;
     uint32_t last_click_time;
     uint32_t last_change_time;
     lv_point_t last_press_point;
-    lv_cpicker_color_mode_t color_mode  :2;
-    uint8_t color_mode_fixed            :1;
-    lv_cpicker_type_t type              :1;
-    uint8_t preview                     :1;
+    lv_cpicker_color_mode_t color_mode  : 2;
+    uint8_t color_mode_fixed            : 1;
+    lv_cpicker_type_t type              : 1;
 } lv_cpicker_ext_t;
 
-/*Styles*/
+/*Parts*/
 enum {
     LV_CPICKER_STYLE_MAIN,
-    LV_CPICKER_STYLE_INDICATOR,
+    LV_CPICKER_STYLE_KNOB,
 };
 typedef uint8_t lv_cpicker_style_t;
 
@@ -158,22 +157,23 @@ void lv_cpicker_set_color_mode(lv_obj_t * cpicker, lv_cpicker_color_mode_t mode)
 void lv_cpicker_set_color_mode_fixed(lv_obj_t * cpicker, bool fixed);
 
 /**
- * Make the indicator to be colored to the current color
+ * Make the knob to be colored to the current color
  * @param cpicker pointer to colorpicker object
- * @param en true: color the indicator; false: not color the indicator
+ * @param en true: color the knob; false: not color the knob
  */
-void lv_cpicker_set_indic_colored(lv_obj_t * cpicker, bool en);
-
-/**
- * Add a color preview in the middle of the DISC type color picker
- * @param cpicker pointer to colorpicker object
- * @param en true: enable preview; false: disable preview
- */
-void lv_cpicker_set_preview(lv_obj_t * cpicker, bool en);
+void lv_cpicker_set_knob_colored(lv_obj_t * cpicker, bool en);
 
 /*=====================
  * Getter functions
  *====================*/
+
+/**
+ * Get style of a colorpicker.
+ * @param cpicker pointer to colorpicker object
+ * @param type which style should be get
+ * @return pointer to the style
+ */
+const lv_style_t * lv_cpicker_get_style(const lv_obj_t * cpicker, lv_cpicker_style_t type);
 
 /**
  * Get the current color mode.
@@ -188,14 +188,6 @@ lv_cpicker_color_mode_t lv_cpicker_get_color_mode(lv_obj_t * cpicker);
  * @return mode cannot be changed on long press
  */
 bool lv_cpicker_get_color_mode_fixed(lv_obj_t * cpicker);
-
-/**
- * Get style of a colorpicker.
- * @param cpicker pointer to colorpicker object
- * @param type which style should be get
- * @return pointer to the style
- */
-const lv_style_t * lv_cpicker_get_style(const lv_obj_t * cpicker, lv_cpicker_style_t type);
 
 /**
  * Get the current hue of a colorpicker.
@@ -233,18 +225,11 @@ lv_color_hsv_t lv_cpicker_get_hsv(lv_obj_t * cpicker);
 lv_color_t lv_cpicker_get_color(lv_obj_t * cpicker);
 
 /**
- * Whether the indicator is colored to the current color or not
- * @param cpicker pointer to colorpicker object
- * @return true: color the indicator; false: not color the indicator
+ * Whether the knob is colored to the current color or not
+ * @param cpicker pointer to color picker object
+ * @return true: color the knob; false: not color the knob
  */
-bool lv_cpicker_get_indic_colored(lv_obj_t * cpicker);
-
-/**
- *  Whether the preview is enabled or not
- * @param cpicker pointer to colorpicker object
- * @return en true: preview is enabled; false: preview is disabled
- */
-bool lv_cpicker_get_preview(lv_obj_t * cpicker);
+bool lv_cpicker_get_knob_colored(lv_obj_t * cpicker);
 
 /*=====================
  * Other functions
