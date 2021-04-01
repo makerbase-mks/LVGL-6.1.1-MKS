@@ -127,7 +127,9 @@ void lv_init(void)
 void lv_deinit(void)
 {
     lv_gc_clear_roots();
-    lv_log_register_print_cb(NULL);
+    #if LV_USE_LOG
+       lv_log_register_print_cb(NULL);
+    #endif
     lv_disp_set_default(NULL);
     lv_mem_deinit();
     lv_initialized = false;
